@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+
+<body>
+    <input type="file" name="avatar" onchange="change(this)" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/spark-md5/3.0.2/spark-md5.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.0.0-alpha.1/axios.min.js"></script>
+    <script>
+        console.log(SparkMD5, 'SparkMD5')
+        console.log(axios, 'axios')
+        const DefualtChunkSize = 30000;
+        const baseURL = 'http://localhost:8888';
+
+        const uploadFile = (url, formData, onUploadProgress = () => { }) => {
+            return axios({
+                method: 'post',
+                url,
+                baseURL,
+                headers: {
+                    'Content-Type': 'multipart/form-data'
+                },
+                data: formData,
+                onUploadProgress
+            });
+        }
+
+        const mergeChunks = (url, data) => {
+            return axios({
+                method: 'post',
+                url,
+                baseURL,
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                data
+            });
+        }
+
+        const uploadChunks = (fileChunkList, fileHash, fileName) => {
+            const requests = fileChunkList.map((item, index) => {
+                const formData = new FormData();
+                formData.append(`${fileName}-${fileHash}-${index}`, item.chunk);
+                formData.append("filename", fileName);
+                formData.append("hash", `${fileHash}-${index}`);
+                formData.append("fileHash", fileHash);
+                return uploadFile('/upload', formData);
+            })
+
+            Promise.all(requests).then(() => {
+                console.log('upload finish')
+            });
+        }
+
+
+        async function change(e) {
+            console.log(e.files, 'eeeee')
+            const { fileChunkList, fileHash, name } = await getFileChunk(e.files[0], DefualtChunkSize)
+            uploadChunks(fileChunkList, fileHash, name)
+        }
+
+        function createReader(onload, onerror) {
+            const fileReader = new FileReader();
+
+            fileReader.onload = (e) => {
+                onload(e)
+            }
+
+            fileReader.onerror = onerror
+
+            return fileReader
+
+        }
+
+        function getFileChunk(file, chunkSize = DefualtChunkSize) {
+            return new Promise((resovle) => {
+                const fileChunkList = []
+                let blobSlice = File.prototype.slice || File.prototype.mozSlice || File.prototype.webkitSlice,
+                    chunks = Math.ceil(file.size / chunkSize),
+                    currentChunk = 0,
+                    spark = new SparkMD5.ArrayBuffer();
+
+
+
+                let onload = (e) => {
+
+                    console.log('read chunk nr', currentChunk + 1, 'of');
+
+                    const chunk = e.target.result;
+                    spark.append(chunk);
+                    currentChunk++;
+
+                    if (currentChunk < chunks) {
+                        loadNext();
+                    } else {
+                        let fileHash = spark.end();
+                        console.log(fileChunkList, 'fileChunkListfileChunkList')
+                        console.info('finished computed hash', fileHash);
+                        resovle({ fileHash, fileChunkList, name: file.name });
+                    }
+                }
+
+                const onerror = function () {
+                    console.warn('oops, something went wrong.');
+                };
+
+                const fileReader = createReader(onload, onerror)
+
+                function loadNext() {
+                    let start = currentChunk * chunkSize,
+                        end = ((start + chunkSize) >= file.size) ? file.size : start + chunkSize;
+                    let chunk = blobSlice.call(file, start, end);
+                    fileChunkList.push({ chunk, size: chunk.size });
+                    fileReader.readAsArrayBuffer(chunk);
+                }
+
+                loadNext();
+            });
+        }
+    </script>
+</body>
+
+</html>
