@@ -54,6 +54,7 @@
 
             Promise.all(requests).then(() => {
                 console.log('upload finish')
+                mergeChunks('/mergeChunks', { size: DefualtChunkSize, filename: fileName });
             });
         }
 
